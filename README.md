@@ -2,7 +2,7 @@
 
 **Local privacy guard for AI agent prompts and messages.** Detects and redacts sensitive content (seed phrases, private keys, API keys, wallet addresses) before it leaves your process, and emits a verifiable **privacy-receipt** proving redaction happened — without storing the original sensitive content.
 
-- **Self-contained.** Zero runtime dependencies. No network calls. No backend.
+- **Self-contained core.** Zero runtime dependencies. No backend. The core makes no network calls (an optional, separately-imported `whispr/adapter` can forward *redacted* prompts to an LLM — opt-in; see below).
 - **Privacy-receipt.** Cryptographic receipt of what was scanned + redacted (hashes + counts, never raw content).
 - **Open source.** MIT. Clone, copy, or import.
 - **Zero config.** One function call to scan, redact, or receipt.
@@ -111,6 +111,41 @@ npm test
 ```
 
 Uses Node's built-in test runner (`node --test`). No third-party test dependencies. Requires Node ≥20.
+
+## Optional: LLM adapter (opt-in, the only part that touches the network)
+
+whispr's core never makes a network call. The **adapter** is a separate, explicitly-imported module (`whispr/adapter`) that runs scan→redact→receipt over your chat messages and then sends the **redacted** messages to an OpenAI-compatible `/chat/completions` endpoint. Redaction happens *before* the send — that's the whole point. Importing the core (`whispr`) never reaches the adapter, so the "never phones home on its own" guarantee still holds.
+
+```js
+import { guardedChatCompletion } from 'whispr/adapter';
+
+const { response, receipt, redactedMessages } = await guardedChatCompletion({
+  provider: 'surplus',                 // 'bankr' | 'surplus', or pass baseURL directly
+  apiKey: process.env.SURPLUS_API_KEY, // read from env — NEVER hardcode a key
+  model: 'claude-opus-4.6',
+  messages: [{ role: 'user', content: 'my key is sk-... please use it' }],
+});
+// → the API only ever received '[REDACTED:API_KEY]', and you get a receipt proving it.
+```
+
+**Providers** (two auth shapes, one adapter):
+
+| Provider | Base URL | Auth header | Env var |
+|---|---|---|---|
+| `bankr` | `https://llm.bankr.bot/v1` | `X-API-Key: bk_…` | `BANKR_API_KEY` |
+| `surplus` | `https://www.surplusintelligence.ai/api/inference/v1` | `Authorization: Bearer inf_…` | `SURPLUS_API_KEY` |
+
+Any other OpenAI-compatible endpoint works too — pass `baseURL` (and `authHeader`/`authScheme` if it isn't `Authorization: Bearer`).
+
+**Keys come from the environment, never the repo.** Run the example (it refuses to run, and sends nothing, without env vars):
+
+```bash
+export WHISPR_PROVIDER=surplus
+export SURPLUS_API_KEY=inf_YOUR_KEY_HERE   # placeholder — use your own
+npm run example:llm
+```
+
+The adapter's tests use a **mocked** fetch — they assert the outbound payload is already redacted and the key never appears in the body, all offline and deterministic (no network in `npm test`).
 
 ## Contributing
 
