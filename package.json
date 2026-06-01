@@ -1,0 +1,31 @@
+{
+  "name": "whispr",
+  "version": "0.1.0",
+  "description": "Local privacy guard for AI agent prompts and messages. Detects and redacts secrets (seed phrases, private keys, API keys, wallet addresses) and emits a verifiable privacy-receipt. Self-contained, no network calls, MIT.",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test tests/scan.test.js tests/redact.test.js tests/receipt.test.js",
+    "example": "node examples/basic.js"
+  },
+  "keywords": [
+    "privacy",
+    "redaction",
+    "secret-detection",
+    "ai-agents",
+    "llm-safety",
+    "privacy-receipt"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}
