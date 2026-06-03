@@ -1,6 +1,6 @@
 # whispr
 
-**Local privacy guard for AI agent prompts and messages.** Detects and redacts sensitive content (seed phrases, private keys, API keys, wallet addresses) before it leaves your process, and emits a verifiable **privacy-receipt** proving redaction happened — without storing the original sensitive content.
+**Local privacy guard for AI agent prompts and messages.** Detects and redacts sensitive content (seed phrases, private keys incl. PEM, API keys, JWTs, wallet addresses, and PII — emails, SSNs, credit cards — plus a high-entropy catch-all for unknown secrets) before it leaves your process, and emits a verifiable **privacy-receipt** proving redaction happened — without storing the original sensitive content.
 
 - **Self-contained core.** Zero runtime dependencies. No backend. The core makes no network calls (an optional, separately-imported `whispr/adapter` can forward *redacted* prompts to an LLM — opt-in; see below).
 - **Privacy-receipt.** Cryptographic receipt of what was scanned + redacted (hashes + counts, never raw content).
@@ -51,14 +51,43 @@ The receipt is **safe to log, share, or anchor on-chain** — it contains hashes
 | Category | Detector | Severity | Notes |
 |---|---|---|---|
 | `seed_phrase` | Label-context: `seed phrase:` / `mnemonic` / `recovery phrase` + 12–24 strictly-lowercase 3–8 char words | critical | Heuristic. Unlabelled mnemonics are NOT detected in S1 — v0.2 will add BIP-39 wordlist validation. |
-| `private_key` | 64 hex chars, optional `0x` prefix | critical | FP risk: SHA-256 hashes, UUIDs-as-hex, etc. Worst-case-critical posture. |
+| `private_key` | 64-hex **with a `0x` prefix or a key-ish label** (`pk=`, `private key:`, …), **and** PEM blocks (`-----BEGIN [RSA/EC/DSA/OPENSSH/PGP] PRIVATE KEY-----`, `subcategory: pem`) | critical | A *confirmed* key — there's a positive signal (0x or label). |
+| `ambiguous_secret` | Bare *unlabelled* 64-hex (no `0x`, no label) | medium | A SHA-256 digest and a raw secp256k1/Ethereum private key are the **same shape** — indistinguishable from content. Redacted-if-in-doubt at medium (with a `note`) rather than silently passed (would leak a raw key) or flagged critical (would scream on every checksum). |
 | `wallet_address` | `0x` + 40 hex chars (EVM-style) | low | Public by design, but flagged so callers can choose to redact for context-anonymity. Use `redact(input, { skip: ['wallet_address'] })` to keep them. |
 | `api_key` | Service-prefix patterns: `sk-ant-`, `sk-`, `sk_live_`, `sk_test_`, `ghp_`, `gho_`, `AKIA`, `xox[bopa]-` | high–critical | Extend by adding patterns to `API_KEY_PATTERNS` in `src/scan.js`. |
+| `jwt` | Three base64url segments where header **and** payload start with `eyJ` | high | The double-`eyJ` anchor keeps false positives very low vs. a generic 3-segment match. |
+| `email` | `local@domain.tld` | low | PII. Common, so flagged low; `skip: ['email']` to keep them. |
+| `ssn` | US `NNN-NN-NNNN`, with invalid area/group/serial ranges (000/666/9xx, 00, 0000) excluded | high | The range exclusions are the main false-positive filter on arbitrary 3-2-4 numbers. |
+| `credit_card` | 13–19 digits (space/dash grouped or contiguous) **that pass the Luhn checksum** | high | Luhn validation is what separates a card number from any long number (~10% of random 16-digit numbers pass Luhn by chance). |
+| `high_entropy` | Generic catch-all: 24+ char tokens with mixed letters+digits, not hex/UUID-shaped, Shannon entropy ≥ 4.0 bits/char | medium | Last-pass, only fires on tokens no specific detector claimed. Catches unbranded/unknown secrets while skipping prose, hashes, and IDs. |
+
+### Detection benchmark
+
+whispr ships a measurable benchmark so the "catches secrets" claim isn't just a claim. It runs the detectors over a synthetic fixture set — true positives (one per detector + a multi-secret case + the redact-if-in-doubt 64-hex cases) and false-positive traps (UUIDs, git SHAs, Luhn-invalid numbers, invalid-range SSNs, phone numbers, prose, URLs, version strings, timestamps) — and reports recall and false positives. **Network-free; no real secrets in the fixtures.**
+
+```bash
+npm run bench
+```
+
+Current result (`bench/fixtures.js`, scanner v0.1.0):
+
+| Metric | Value |
+|---|---|
+| Synthetic positives | 21 cases (24 expected findings) |
+| False-positive traps | 10 cases |
+| **Recall** | **100.0%** (0 false negatives) |
+| **False positives** | **0** (precision 100.0%) |
+
+The benchmark is asserted by `tests/bench.test.js`, so any detector change that regresses recall or introduces a false positive fails `npm test` before the published numbers can drift.
+
+**Honest reading of the numbers:** "false positives" means a finding in a case that should have produced none. A bare SHA-256 digest is **not** counted as a false positive — by design whispr redacts it as an `ambiguous_secret` (medium), because it's shape-identical to a raw private key (the benchmark includes this exact case as an expected `ambiguous_secret`, see the `private_key` / `ambiguous_secret` rows above). The numbers reflect this synthetic fixture set — detector behaviour against known shapes, not real-world recall across every possible secret format.
 
 ### Known limitations (honest scope)
 
 - **Seed phrases need a label.** Minimises false positives. v0.2 roadmap: optional BIP-39 wordlist validation for unlabelled phrases.
-- **64-hex matches are ambiguous.** A SHA-256 hash, a UUID-as-hex, and an actual private key all share the shape. The detector flags conservatively.
+- **Bare 64-hex is ambiguous (redact-if-in-doubt).** A SHA-256 digest and a raw secp256k1/Ethereum private key share the exact 64-hex shape. whispr is recall-first: bare unlabelled 64-hex is flagged as `ambiguous_secret` (medium) and **redacted**, rather than silently passed (would leak a real key) or marked critical (would scream on every checksum). It's only a confirmed `private_key` with a `0x` prefix or a key-ish label. Trade-off, stated plainly: some harmless checksums get redacted at medium — the accepted cost of never passing a look-alike key.
+- **PII detection is format-based, region-limited.** SSN detection is US-format only; email/credit-card detection matches shape (and Luhn, for cards), not ownership or real-world validity.
+- **The high-entropy catch-all is conservative by design.** It trades some recall on low-entropy or short secrets for a low false-positive rate (mixed letter+digit, non-hex, entropy ≥ 4.0). It will miss secrets that look like ordinary words or IDs.
 - **API key patterns cover common services only.** PR new patterns for less-common services.
 - **No language-specific syntax awareness.** The scanner is content-only; it doesn't know about comments, string literals, etc.
 
@@ -95,6 +124,36 @@ The receipt is **safe to log, share, or anchor on-chain** — it contains hashes
 - *"N sensitive items were found, of these severities."* → summary
 
 S1 ships the receipt as inline JSON. Promotion to a formal `whispr-receipt-spec.md` (mirroring the Proof-of-Creation pattern) is a v0.2 candidate if the format gains external adopters.
+
+## Signed receipts (VC-aligned)
+
+A plain receipt is "trust us, we redacted." A **signed** receipt is proof anyone can check: an Ed25519 signature over the receipt, so a third party can confirm it was issued by a specific key and hasn't been altered.
+
+```js
+import { redact, createPrivacyCredential, generateKeypair, signReceipt, verifyReceipt } from 'whispr';
+
+const { redacted, findings } = redact(input);
+
+// Build a VC-aligned credential, then sign it with your key.
+const credential = createPrivacyCredential({ input, redacted, findings, issuer: 'did:example:agent-1' });
+const keypair = generateKeypair();              // hold the private key securely
+const signed = signReceipt(credential, keypair.privateKey);
+
+verifyReceipt(signed);                                   // { valid: true } (integrity + embedded key)
+verifyReceipt(signed, { publicKey: keypair.publicKeyBase64 }); // pins the EXPECTED signer (origin)
+```
+
+The credential follows the **W3C Verifiable Credential data model** (`@context`, `type: ["VerifiableCredential","PrivacyReceipt"]`, `issuer`, `issuanceDate`, `credentialSubject`, `proof`). The `credentialSubject` carries only the safe receipt fields (hashes, counts, categories) — never raw matches, positions, or text. The `proof` is excluded from the canonical bytes that get signed.
+
+**What a signed receipt proves:**
+- **Integrity** — not one byte of the receipt changed since signing (any mutation → `valid: false`).
+- **Origin** — the holder of the matching private key signed it. Pin the expected key via `verifyReceipt(receipt, { publicKey })` to reject a swapped-in key.
+
+**What it does NOT prove:** that the scan was *complete*, or that the data is "safe" — only that this exact receipt was signed by that key.
+
+> **Honesty note — "VC-aligned", not yet fully conformant.** This uses the VC data model and signs with **Ed25519 over JCS-canonical bytes (RFC 8785)** — deterministic and dependency-free, no JSON-LD/RDF toolchain. It is **not** yet a registered W3C Data-Integrity proof suite, and the term context URL is a placeholder, so a generic VC verifier won't validate it out of the box. Full VC Data-Integrity conformance (resolvable `@context` + a registered suite) is on the roadmap. Until then: *VC-aligned*, verifiable with this library's `verifyReceipt` — don't market it as a certified W3C Verifiable Credential.
+
+Sign + verify are **100% offline** (only `node:crypto`). Anchoring a receipt hash on-chain is a separate, opt-in step, never part of signing.
 
 ## Run the example
 

@@ -56,3 +56,42 @@ export function createPrivacyReceipt({ input, redacted, findings }) {
     },
   };
 }
+
+// W3C VC data-model context + a whispr-specific term context. The second URL is a
+// namespace identifier for the PrivacyReceipt terms; it is a placeholder until a
+// resolvable JSON-LD context is published (required for full VC conformance — see
+// CREDENTIAL_PROFILE / the "VC-aligned, not yet conformant" note in the README).
+export const VC_CONTEXT = [
+  'https://www.w3.org/ns/credentials/v2',
+  'https://shirotheturtle.github.io/whispr/contexts/privacy-receipt/v1',
+];
+export const CREDENTIAL_PROFILE = 'whispr-privacy-receipt/v1';
+
+/**
+ * Build a VC-aligned privacy receipt (unsigned). Pass it to `signReceipt` from
+ * `whispr/sign` to attach an Ed25519 `proof`.
+ *
+ * Shape follows the W3C Verifiable Credential data model (@context, type, issuer,
+ * issuanceDate, credentialSubject). The credentialSubject carries ONLY the safe
+ * receipt fields (hashes + counts + categories) — never the raw matches, positions,
+ * or original/redacted text. `issuer` is a caller-supplied identifier (e.g. an agent
+ * DID or URL); it defaults to a placeholder when omitted.
+ */
+export function createPrivacyCredential({ input, redacted, findings, issuer } = {}) {
+  const receipt = createPrivacyReceipt({ input, redacted, findings });
+  return {
+    '@context': VC_CONTEXT,
+    type: ['VerifiableCredential', 'PrivacyReceipt'],
+    issuer: issuer ?? 'urn:whispr:unspecified-issuer',
+    issuanceDate: receipt.createdAt,
+    credentialSubject: {
+      id: `urn:uuid:${receipt.receiptId}`,
+      profile: CREDENTIAL_PROFILE,
+      scannerVersion: receipt.scannerVersion,
+      inputHash: receipt.inputHash,
+      redactedHash: receipt.redactedHash,
+      findings: receipt.findings,
+      summary: receipt.summary,
+    },
+  };
+}

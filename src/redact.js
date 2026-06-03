@@ -5,6 +5,12 @@ const TOKEN_BY_CATEGORY = {
   private_key:    '[REDACTED:PRIVATE_KEY]',
   api_key:        '[REDACTED:API_KEY]',
   wallet_address: '[REDACTED:WALLET_ADDRESS]',
+  jwt:            '[REDACTED:JWT]',
+  email:          '[REDACTED:EMAIL]',
+  ssn:            '[REDACTED:SSN]',
+  credit_card:    '[REDACTED:CREDIT_CARD]',
+  high_entropy:   '[REDACTED:SECRET]',
+  ambiguous_secret: '[REDACTED:AMBIGUOUS_SECRET]',
 };
 
 export function redact(input, options = {}) {

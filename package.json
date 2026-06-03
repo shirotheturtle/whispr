@@ -14,7 +14,8 @@
     "README.md"
   ],
   "scripts": {
-    "test": "node --test tests/scan.test.js tests/redact.test.js tests/receipt.test.js tests/adapter.test.js",
+    "test": "node --test tests/scan.test.js tests/redact.test.js tests/receipt.test.js tests/adapter.test.js tests/detectors.test.js tests/bench.test.js tests/sign.test.js tests/credential.test.js",
+    "bench": "node bench/run.js",
     "example": "node examples/basic.js",
     "example:llm": "node examples/llm-adapter.js"
   },
