@@ -155,6 +155,26 @@ The credential follows the **W3C Verifiable Credential data model** (`@context`,
 
 Sign + verify are **100% offline** (only `node:crypto`). Anchoring a receipt hash on-chain is a separate, opt-in step, never part of signing.
 
+## Pre-push privacy gate (git hook)
+
+Stop secrets from leaving the repo in the first place: a local **pre-push** hook that scans the diff you're about to push, **blocks the push** if it detects a secret, and writes a **signed privacy-receipt** proving the scan ran.
+
+```bash
+# in any git repo (works with plain git, GitHub, gitlawb — no remote-specific setup)
+whispr git install      # installs .git/hooks/pre-push + a local signing key
+# ...later, on `git push`:
+#   clean diff   → push proceeds, signed receipt written under .git/whispr/receipts/
+#   secret found → push BLOCKED (non-zero exit), offending file:type listed
+whispr git uninstall    # remove the gate
+```
+
+- **Reuses the same detectors** as `scan()` / `redact()` — pointed at the added lines of the pushed diff (new branch → full content vs the empty tree; branch update → only the new commits).
+- **Fail-closed**: if git or the scan errors, the push is **blocked**, never silently allowed.
+- **Configurable threshold**: `WHISPR_BLOCK_SEVERITY=low|medium|high|critical` (default `high`). At the default it **blocks detected known secrets** — API keys (Anthropic/OpenAI/Stripe/GitHub/AWS/Slack…), private keys (PEM + labelled hex), JWTs, SSNs, credit cards, seed phrases. **Lower-confidence findings are flagged in the receipt but do NOT block**: the high-entropy "looks-random" catch-all and bare 64-hex (`ambiguous_secret`, indistinguishable from a SHA-256 digest), plus low-severity PII (emails, wallet addresses). Set `WHISPR_BLOCK_SEVERITY=medium` to also block the high-entropy guesses (more false alarms on hashes/IDs).
+- The receipt records repo, refs, scanner version, findings **summary** and the gate verdict, signed with a per-repo key kept inside `.git/` (never committed). As with all receipts, it contains **no raw matched values, positions, or original text**.
+
+**Honest scope:** the gate stops **detected** secrets and proves the scan happened — it is **not** a guarantee that "nothing can ever leak." Novel/unrecognised secret shapes the detectors don't know can still pass. It gates *the push diff*, using whispr's current detector set.
+
 ## Run the example
 
 ```bash

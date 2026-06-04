@@ -4,17 +4,22 @@
   "description": "Local privacy guard for AI agent prompts and messages. Detects and redacts secrets (seed phrases, private keys, API keys, wallet addresses) and emits a verifiable privacy-receipt. Self-contained core (no network calls); optional opt-in adapter forwards redacted prompts. MIT.",
   "type": "module",
   "main": "src/index.js",
+  "bin": {
+    "whispr": "bin/whispr.js"
+  },
   "exports": {
     ".": "./src/index.js",
-    "./adapter": "./src/adapter.js"
+    "./adapter": "./src/adapter.js",
+    "./git-gate": "./src/git-gate.js"
   },
   "files": [
     "src/",
+    "bin/",
     "LICENSE",
     "README.md"
   ],
   "scripts": {
-    "test": "node --test tests/scan.test.js tests/redact.test.js tests/receipt.test.js tests/adapter.test.js tests/detectors.test.js tests/bench.test.js tests/sign.test.js tests/credential.test.js",
+    "test": "node --test tests/scan.test.js tests/redact.test.js tests/receipt.test.js tests/adapter.test.js tests/detectors.test.js tests/bench.test.js tests/sign.test.js tests/credential.test.js tests/git-gate.test.js",
     "bench": "node bench/run.js",
     "example": "node examples/basic.js",
     "example:llm": "node examples/llm-adapter.js"
